@@ -7,6 +7,7 @@ PARAM_OPERATION_READ = 1
 PARAM_OPERATION_WRITE = 2
 PARAM_OPERATION_EVENT = 4
 
+PARAM_STICKY_UNREACH = 'STICKY_UNREACH'
 PARAM_UNREACH = 'UNREACH'
 PARAMSET_VALUES = 'VALUES'
 
@@ -28,6 +29,7 @@ class HMGeneric():
         self._paramsets = {}
         self._eventcallbacks = []
         self._unreach = None
+        self._sticky_unreach = None
         self._name = None
 
     @property
@@ -59,6 +61,9 @@ class HMGeneric():
             % (self._ADDRESS, interface_id, key, value))
         if key == PARAM_UNREACH:
             self._unreach = value
+        elif key == PARAM_STICKY_UNREACH:
+            self._sticky_unreach = value
+
         if not self._eventcallbacks:
             LOG.debug("HMGeneric.event: No callbacks registered for event %s (%s)", key, str(self))
 
@@ -89,7 +94,9 @@ class HMGeneric():
                         self._paramsets[paramset] = returnset
                         if self.PARAMSETS:
                             if self.PARAMSETS.get(PARAMSET_VALUES):
-                                self._unreach = self.PARAMSETS.get(PARAMSET_VALUES).get(PARAM_UNREACH)
+                                values_paramset = self.PARAMSETS.get(PARAMSET_VALUES)
+                                self._unreach = values_paramset.get(PARAM_UNREACH)
+                                self._sticky_unreach = values_paramset.get(PARAM_STICKY_UNREACH)
                         return True
             return False
         except Exception as err:
@@ -162,6 +169,13 @@ class HMChannel(HMGeneric):
         return self._PARENT
 
     @property
+    def STICKY_UNREACH(self):
+        """ Returns true if device or child was not reachable """
+        if self._sticky_unreach:
+            return True
+        return False
+
+    @property
     def UNREACH(self):
         """ Returns true if children is not reachable """
         if self._unreach:
@@ -216,7 +230,15 @@ class HMDevice(HMGeneric):
         # - 0...n / getValue from channel (fix)
         self._SENSORNODE = {}
         self._BINARYNODE = {}
-        self._ATTRIBUTENODE = {"RSSI_PEER": [0]}
+        self._ATTRIBUTENODE = {
+                # RSSI_PEER is actually only exposed by wireless devices, so
+                # it is removed by `HelperWired`.
+                "RSSI_PEER": [0],
+                # UNREACH is exposed for all HM devices (RF/IP/wired)
+                "UNREACH": [0],
+                # STICKY_UNREACH is exposed for all HM devices (RF/IP/wired)
+                "STICKY_UNREACH": [0],
+        }
         self._WRITENODE = {}
         self._EVENTNODE = {}
         self._ACTIONNODE = {}
@@ -242,6 +264,17 @@ class HMDevice(HMGeneric):
         self._AVAILABLE_FIRMWARE = device_description.get('AVAILABLE_FIRMWARE')
         self._UPDATABLE = device_description.get('UPDATABLE')
         self._PARENT_TYPE = None
+
+    @property
+    def STICKY_UNREACH(self):
+        """ Returns true if the device or any child was unreachable """
+        if self._sticky_unreach:
+            return True
+        else:
+            for device in self._hmchannels.values():
+                if device.STICKY_UNREACH:
+                    return True
+        return False
 
     @property
     def UNREACH(self):
